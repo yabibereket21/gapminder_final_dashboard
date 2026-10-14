@@ -1,0 +1,466 @@
+---
+title: "GAPMINDER 2011 | Global HIV Trends"
+format: dashboard
+theme: lux
+---
+
+```{r}
+# Load packages
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, gapminder,
+               bslib, bsicons, shiny, 
+               rnaturalearth, plotly, 
+               countrycode, htmltools, 
+               reactable, here
+               )
+#getting inspectdf installed
+pacman::p_load_current_gh("the-graph-courses/inspectdf")
+
+```
+
+```{r}
+#load datasets
+
+hiv_living_raw <- read.csv(here("people_living_with_hiv_number_all_ages.csv"))
+hiv_death_raw <- read.csv(here("annual_hiv_deaths_number_all_ages.csv"))
+
+# hiv_living_raw
+# hiv_death_raw
+```
+
+
+```{r}
+#data exploration- all commented out
+# 
+# #living with hiv dataset
+# 
+# #inspecting the data
+# str(hiv_living_raw)
+# visdat::vis_dat(hiv_living_raw)
+# 
+# #appears to have many NAs, filtering to just 2011 (most recent data)
+# 
+ hiv_living_sub <- hiv_living_raw%>%
+   select(c(1:2,35))
+# 
+# 
+# #death from hiv dataset
+# 
+# #inspecting the data
+# str(hiv_death_raw)
+# visdat::vis_dat(hiv_death_raw)
+# 
+# #subsetting this to just 2011
+# 
+ hiv_death_sub <- hiv_death_raw%>%
+   select(c(1:2,24))
+# 
+# #this dataset is more complete
+
+```
+
+
+```{r}
+#data manipulation
+
+#altering the datasets to pivot longer so I can work with them
+
+hiv_living_long <- hiv_living_sub%>%
+  pivot_longer(cols = 3,names_to = "year", 
+               values_to = "cases")
+
+
+
+hiv_death_long <- hiv_death_sub%>%
+  pivot_longer(cols = 3,names_to = "year", 
+               values_to = "cases")
+
+# viewing
+# hiv_living_long
+# hiv_death_long
+  
+```
+
+```{r}
+#page 1 content: people living with HIV (2011)
+
+#first- country with highest number of people living with HIV
+view(hiv_living_long)
+
+highest_hiv_living_country <- hiv_living_long%>%
+  arrange(-cases)%>%
+  head(1)%>%
+  pull(name)
+
+#value
+highest_hiv_living_value <- hiv_living_long%>%
+  arrange(-cases)%>%
+  head(1)%>%
+  pull(cases)
+  
+
+#second - country with lowest number of people living with HIV
+lowest_hiv_living_country <- hiv_living_long%>%
+  arrange(cases)%>%
+  head(1)%>%
+  pull(name)
+
+#value
+lowest_hiv_living_value <- hiv_living_long%>%
+  arrange(cases)%>%
+  head(1)%>%
+  pull(cases)
+
+
+#third - total number of people living with HIV in 2011
+total_hiv_living <- hiv_living_long%>%
+  summarise(total_cases = sum(cases, na.rm = TRUE))
+#since the box does not look the best in dashboard, altering to something better visually
+total_hiv_living <- "30M+"
+
+
+#not used, keeping as reference (finding average)
+# hiv_living_long%>%
+#   summarise(
+#     total_cases = sum(cases, na.rm = TRUE), 
+#     total_countries = length(name),
+#     mean_est = total_cases/total_countries
+#   )
+
+#creating the elements
+
+# # highest hiv cases
+# value_box(
+#   title = "Total HIV Cases",
+#   value = total_hiv_living,
+#   showcase = bsicons::bs_icon("virus"),
+#   theme = value_box_theme(bg = "#e60000"),
+#   p(paste0("(", total_hiv_living, ")"))
+# )
+# 
+# # lowest hiv cases
+# value_box(
+#   title = "Lowest HIV Cases",
+#   value = lowest_hiv_living_country,
+#   showcase = bsicons::bs_icon("virus"),
+#   theme = value_box_theme(bg = "#e60000"),
+#   p(paste0("(", lowest_hiv_living_value, ")"))
+# )
+# 
+# # total number of people living with HIV in 2011
+# value_box(
+#   title = "Total HIV Cases in 2011:",
+#   value = total_hiv_living,
+#   showcase = bsicons::bs_icon("virus"),
+#   theme = value_box_theme(bg = "#e60000"),
+#   p(paste0("(", "Globally", ")"))
+# )
+
+#interactive map of number of people living with HIV in 2011
+
+#first create object of map/shapes
+country_shapes <- rnaturalearth::ne_countries()
+
+#now join/combine the datasets
+
+
+#capitalizing geo column first
+hiv_living_long <- hiv_living_long%>%
+  mutate(geo = str_to_upper(geo))
+
+#now combine datasets
+country_hiv_living_combined <- left_join(country_shapes, hiv_living_long, by = c("adm0_a3" = "geo"))%>%
+  mutate(tooltip_label = paste(name.y , 
+                               cases, 
+                               sep = ": "))
+
+#create the map
+gap_map <- ggplot(country_hiv_living_combined)+
+  geom_sf(aes(fill = cases, text = tooltip_label))+
+  scale_fill_gradient(low = "mistyrose", high = "darkred")+ #added this so its shades of red
+  theme_void()+
+  theme(legend.position = "none")
+
+#make map interactive
+gapmap_ggplotly <- ggplotly(gap_map, tooltip = "text")
+
+
+
+#graph: top 10 countries highest # of people living with hiv
+
+#creating the dataset of top 10 countries
+top_10_hiv_living <- hiv_living_long%>%
+  arrange(-cases)%>%
+  head(10)%>%
+    mutate(tooltip_label = paste(name, 
+                               cases, 
+                               sep = ": "))
+
+#creating the graph
+right_graph_final <- ggplot(top_10_hiv_living, aes(y=reorder(name, cases),
+                        x = cases, fill = cases, 
+                        text = tooltip_label))+
+  geom_col()+
+  geom_text(aes(label = cases), 
+            hjust = 1.1, #added this to fit the values within the bars
+            color = "white")+
+  scale_fill_gradient(low = "mistyrose", high = "darkred") + #added this so its shades of red
+  scale_x_continuous(labels = scales::comma) + #added this so the x values are not in scientific notation
+  labs(y = "Country", 
+       x = "Case Count")+
+  theme(legend.position = "none")
+
+```
+
+```{r}
+#page 2 content: people who died by HIV (2011)
+
+
+#first- country and value with highest death count by HIV
+
+highest_hiv_death_value <- hiv_death_long%>%
+  arrange(-cases)%>%
+  head(1)%>%
+  pull()
+
+highest_hiv_death_country <- hiv_death_long%>%
+  arrange(-cases)%>%
+  head(1)%>%
+  pull(name)
+
+# value_box(
+#   title = "Highest HIV Deaths",
+#   value = highest_hiv_death_country,
+#   showcase = bsicons::bs_icon("virus"),
+#   theme = value_box_theme(bg = "#990000"),
+#   p(paste0("(", highest_hiv_death_value, ")"))
+# )
+#   
+
+# #second- country and value lowest HIV death
+# hiv_death_long%>%
+#   arrange(cases)
+# #note- there are 10 countries. Might do region with lowest death count?
+# hiv_death_long%>%
+#   filter(cases == 60)
+# #majority european countries with the lowest death count. Will report Europe as the continent with least amount of death by hiv
+
+lowest_hiv_death_value <- "≤ 60 deaths"
+
+# value_box(
+#   title = "Lowest HIV Deaths",
+#   value = lowest_hiv_death_value,
+#   showcase = bsicons::bs_icon("globe"),
+#   theme = value_box_theme(bg = "#990000"),
+#   p(paste0("(", "countries listed below", ")"))
+# )
+#   
+# #third- totals country and value lowest HIV death
+ total_hiv_death_value <- hiv_death_long%>%
+   summarise(total_cases = sum(cases, na.rm = TRUE))
+# 
+# value_box(
+#   title = "Total HIV Deaths",
+#   value = total_hiv_death_value,
+#   showcase = bsicons::bs_icon("globe"),
+#   theme = value_box_theme(bg = "#990000"),
+#   p(paste0("(", "Globally", ")"))
+# )
+
+
+#map
+
+#first create object of map/shapes
+country_shapes <- rnaturalearth::ne_countries()
+
+#now join/combine the datasets
+
+
+#capitalizing geo column first
+hiv_death_long <- hiv_death_long%>%
+  mutate(geo = str_to_upper(geo))
+
+#now combine datasets
+country_hiv_death_combined <- left_join(country_shapes, hiv_death_long, by = c("adm0_a3" = "geo"))%>%
+  mutate(tooltip_label = paste(name.y , 
+                               cases, 
+                               sep = ": "))
+
+#create the map
+gap_map_2 <- ggplot(country_hiv_death_combined)+
+  geom_sf(aes(fill = cases, text = tooltip_label))+
+  scale_fill_gradient(low = "mistyrose", high = "darkred")+ #added this so its shades of red
+  theme_void()+
+  theme(legend.position = "none")
+
+#make map interactive
+gapmap_ggplotly_2 <- ggplotly(gap_map_2, tooltip = "text")
+
+
+#graph: top 10 countries highest # death by  hiv
+
+#creating the dataset of top 10 countries
+top_10_hiv_death <- hiv_death_long%>%
+  arrange(-cases)%>%
+  head(10)%>%
+    mutate(tooltip_label = paste(name, 
+                               cases, 
+                               sep = ": "))
+
+#creating the graph
+right_graph_final_2 <- ggplot(top_10_hiv_death, aes(y=reorder(name, cases),
+                        x = cases, fill = cases, 
+                        text = tooltip_label))+
+  geom_col()+
+  geom_text(aes(label = cases), 
+            hjust = 1.1, #added this to fit the values within the bars
+            color = "white")+
+  scale_fill_gradient(low = "mistyrose", high = "darkred") + #added this so its shades of red
+  scale_x_continuous(labels = scales::comma) + #added this so the x values are not in scientific notation
+  labs(y = "Country", 
+       x = "Case Count")+
+  theme(legend.position = "none")
+
+```
+
+```{r}
+#page 3 content
+
+hiv_combined <- hiv_living_long %>%
+  select(geo, name, hiv_living_long = cases) %>%
+  inner_join(
+    hiv_death_long %>%
+      select(geo, deaths = cases),
+    by = "geo"
+  )
+
+other_graph <- ggplot(hiv_combined, aes(x = hiv_living_long, y = deaths)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    title = "People Living with HIV vs. HIV Deaths, 2011",
+    x = "People Living with HIV (log scale)",
+    y = "HIV Deaths (log scale)"
+  ) +
+  theme_minimal()
+
+```
+
+
+# Living with HIV
+
+## Row 1 {height=30%}
+
+```{r}
+value_box(
+  title = "Highest HIV Cases",
+  value = highest_hiv_living_country,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#990000"),
+  p(paste0("(", highest_hiv_living_value, ")"))
+)
+```
+
+```{r}
+value_box(
+  title = "Lowest HIV Cases",
+  value = lowest_hiv_living_country,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#e60000"),
+  p(paste0("(", lowest_hiv_living_value, ")"))
+)
+```
+
+```{r}
+value_box(
+  title = "Total HIV Cases in 2011:",
+  value = total_hiv_living,
+  showcase = bsicons::bs_icon("globe"),
+  theme = value_box_theme(bg = "#990000"),
+  p(paste0("(", "Globally", ")"))
+)
+```
+
+
+## Row 2 {height=70%}
+
+### {width=70%}
+
+```{r title = "Map of Countries by HIV Count"}
+gapmap_ggplotly
+```
+
+
+### {width=30%}
+
+```{r title = "Top 10 Countries: Living with HIV"}
+right_graph_final
+```
+
+# Death by HIV
+
+## Row 1 {height=30%}
+
+```{r}
+value_box(
+  title = "Highest HIV Deaths",
+  value = highest_hiv_death_country,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#4D0000"),
+  p(paste0("(", highest_hiv_death_value, ")"))
+)
+
+```
+
+```{r}
+value_box(
+  title = "Lowest HIV Deaths",
+  value = lowest_hiv_death_value,
+  showcase = bsicons::bs_icon("globe"),
+  theme = value_box_theme(bg = "#B30000")
+)
+```
+
+```{r}
+value_box(
+  title = "Total HIV Deaths",
+  value = total_hiv_death_value,
+  showcase = bsicons::bs_icon("globe"),
+  theme = value_box_theme(bg = "#FFB3B3"),
+  p(paste0("(", "Globally", ")"))
+)
+
+```
+
+## Row 2 {height=70%}
+
+### {width=70%}
+
+```{r title = "Map of Countries by HIV Death Count"}
+gapmap_ggplotly_2
+```
+
+
+### {width=30%}
+
+```{r title = "Top 10 Countries: Death from HIV"}
+right_graph_final_2
+```
+
+# Comparison: Living vs Death by HIV 
+
+```{r}
+other_graph
+
+```
+
+
+## Discussion 
+
+::: {.card .custom-card padding="3px" expandable="false" fill="false"}
+
+The data show a strong positive relationship between the number of people living with HIV and HIV-related deaths in 2011. Countries with more people living with HIV generally experienced more deaths, but substantial variation exists between countries with similar numbers of people living with HIV. This suggests that factors such as access to treatment and quality of healthcare may influence HIV mortality.
+
+:::
+
